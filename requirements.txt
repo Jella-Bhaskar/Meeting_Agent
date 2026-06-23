@@ -1,0 +1,40 @@
+# =============================================================================
+# requirements.txt — Python Dependencies (Gemini 2.5 Flash edition)
+# =============================================================================
+#
+# CHANGED from Claude version:
+#   REMOVED: anthropic==0.34.0
+#   ADDED:   google-generativeai==0.8.3
+#
+# google-generativeai: official Google AI Python SDK
+#   - genai.configure(api_key=...) → set API key
+#   - genai.GenerativeModel(model_name=...) → create model
+#   - model.generate_content(prompt, tools=...) → call Gemini
+#   - types.Tool(google_search=types.GoogleSearch()) → enable Search grounding
+#
+# EVERYTHING ELSE IS UNCHANGED — LangGraph, FastAPI, Streamlit, Calendar, etc.
+# The agent architecture is model-agnostic; only the LLM client changes.
+# =============================================================================
+
+# FastAPI Backend
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-dotenv==1.0.1
+apscheduler==3.10.4
+
+# Gemini (replaces anthropic)
+google-generativeai==0.8.3
+
+# LangGraph (Agentic Framework — UNCHANGED)
+langgraph
+langchain-core
+
+# Google Calendar (UNCHANGED)
+google-api-python-client==2.143.0
+google-auth-oauthlib==1.2.1
+google-auth-httplib2==0.2.0
+
+# Streamlit Frontend (UNCHANGED)
+streamlit
+streamlit-autorefresh
+requests

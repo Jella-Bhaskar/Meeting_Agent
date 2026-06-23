@@ -1,0 +1,23 @@
+# .streamlit/config.toml — Streamlit Cloud configuration
+# =============================================================================
+# HOW TO DEPLOY STREAMLIT FRONTEND:
+# 1. Push code to GitHub
+# 2. Go to https://share.streamlit.io
+# 3. New app → select your repo → Main file path: frontend/app.py
+# 4. Advanced settings → Secrets:
+#    API_URL = "https://your-backend.onrender.com"
+# 5. Deploy → you get a public URL like:
+#    https://yourname-meeting-intel-agent.streamlit.app
+# =============================================================================
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[theme]
+base = "dark"
+primaryColor = "#6366f1"
+backgroundColor = "#0f172a"
+secondaryBackgroundColor = "#1e293b"
+textColor = "#e2e8f0"

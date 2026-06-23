@@ -1,0 +1,36 @@
+# render.yaml — Deploy to Render.com (free tier)
+# =============================================================================
+# HOW TO DEPLOY:
+# 1. Push code to GitHub (public repo)
+# 2. Go to https://render.com → New → Blueprint
+# 3. Connect your GitHub repo
+# 4. Render reads this file and auto-configures everything
+# 5. Set environment variables in Render dashboard:
+#    - ANTHROPIC_API_KEY
+#    - GOOGLE_CREDENTIALS_JSON (paste the entire JSON content)
+# =============================================================================
+
+services:
+  # Backend — FastAPI + Agent
+  - type: web
+    name: meeting-intel-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false          # Set manually in Render dashboard
+      - key: GOOGLE_TOKEN_PATH
+        value: /tmp/token.json
+      - key: GOOGLE_CREDENTIALS_PATH
+        value: /tmp/credentials.json
+      - key: BRIEFS_FILE_PATH
+        value: /tmp/briefs_cache.json
+      - key: FETCH_DAYS_AHEAD
+        value: "7"
+      - key: REFRESH_INTERVAL_MINUTES
+        value: "30"
+      - key: ENV
+        value: production
+    healthCheckPath: /

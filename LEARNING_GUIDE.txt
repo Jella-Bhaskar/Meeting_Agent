@@ -1,0 +1,268 @@
+# 📚 LEARNING GUIDE — Meeting Intelligence Agent
+# Every Concept Explained, Why We Made Each Decision
+
+=============================================================================
+
+## 🗺️ READ ORDER (Sunday learning path)
+
+Start here → understand before you run code.
+Total reading time: ~45 minutes. Building time: ~4-5 hours.
+
+1.  WHAT IS AN AGENT? (this file, section 1)
+2.  agent/state.py        — State design, TypedDict
+3.  agent/graph.py        — LangGraph, DAGs, compilation
+4.  agent/nodes.py        — Tool use, structured output, graceful fallback
+5.  calendar_client.py    — OAuth2, external APIs
+6.  brief_store.py        — Persistence, atomic writes, cache
+7.  main.py               — FastAPI, background tasks, CORS, lifespan
+8.  frontend/app.py       — Streamlit, session state, polling
+9.  RUNNING IT (README.md)
+10. EXTENDING IT (bottom of this file)
+
+=============================================================================
+
+## 1. WHAT IS AN AGENT?
+
+Traditional software: Input → deterministic code → Output
+An agent: Goal → LLM reasons + uses tools → takes actions → reaches goal
+
+The key difference is **autonomy**:
+- Traditional: you tell it EVERY step
+- Agent: you give it a GOAL, it figures out the steps
+
+For our agent, the goal is:
+  "Given a meeting with acme@linear.app, build me a research brief"
+
+The agent decides:
+  - What to search for ("Linear company overview")
+  - When to search again ("need more recent news")
+  - When it has enough information ("I can now write the brief")
+
+You don't hardcode these decisions. Claude makes them based on context.
+
+---
+
+## 2. WHAT IS LANGGRAPH?
+
+LangGraph is a framework for building agents as directed graphs.
+
+A graph has:
+  - NODES: functions that do work
+  - EDGES: connections that define execution order
+  - STATE: a dict that flows through all nodes
+
+Why use it instead of just calling functions in order?
+
+  # Without LangGraph (simple but limited):
+  events = fetch_calendar()
+  signals = extract_companies(events)
+  briefs = research(signals)
+  save(briefs)
+
+  # With LangGraph (more structure):
+  graph.add_node("fetch", fetch_calendar_node)
+  graph.add_node("extract", extract_companies_node)
+  graph.add_edge("fetch", "extract")
+  graph.compile().invoke(initial_state)
+
+Benefits of LangGraph:
+  ✓ Conditional routing: "if no meetings → skip to END"
+  ✓ Parallel branches: research 10 companies simultaneously
+  ✓ Built-in tracing: see every state transition in LangSmith
+  ✓ Checkpointing: resume from middle if agent crashes
+  ✓ Standard pattern: what Anthropic, OpenAI, Google all use internally
+
+---
+
+## 3. WHAT IS TOOL USE (FUNCTION CALLING)?
+
+When you call Claude with tools, you're giving it "abilities":
+
+  tools = [{"type": "web_search_20250305", "name": "web_search"}]
+
+Claude can now decide to call web_search() when it needs information.
+
+The flow:
+  1. You: "Research Linear. You can use web_search."
+  2. Claude: "I'll search for 'Linear company overview'" → calls tool
+  3. Tool returns: search results HTML
+  4. Claude reads results, thinks: "I need more on recent news"
+  5. Claude: "Searching for 'Linear news 2025'" → calls tool again
+  6. Claude reads results: "OK I have enough. Writing brief now."
+  7. Claude: [returns the final JSON brief]
+
+What's powerful here: YOU never told Claude what to search for.
+It decided autonomously based on its goal (write a complete brief).
+
+This is the fundamental pattern behind every major AI agent today.
+
+---
+
+## 4. WHY STRUCTURED OUTPUT (JSON SCHEMA)?
+
+When Claude answers a free-form question, it might say:
+  "Linear is a project management tool known for its speed. Recently..."
+
+You can't easily parse this into: company_overview, recent_news, talking_points.
+
+Instead, we instruct Claude:
+  "Respond ONLY with this JSON: {company_overview: ..., recent_news: ..., ...}"
+
+Now we get a consistent, parseable dict every time.
+
+This is essential for any agent that produces data to be displayed in a UI
+or stored in a database. The LLM becomes a structured data extractor.
+
+Risk: Claude sometimes adds preamble like "Here is the JSON:" before the JSON.
+Fix: always strip markdown fences and look for the first { character.
+
+---
+
+## 5. WHAT IS OAUTH2? (Google Calendar Auth)
+
+OAuth2 is how apps get permission to access your data without your password.
+
+Flow for our app:
+  1. We have: credentials.json (our app's identity = client_id + client_secret)
+  2. User (you) opens the app for the first time
+  3. Browser opens: "Meeting Intel Agent wants to read your calendar"
+  4. You click Allow
+  5. Google gives us: access_token (short-lived) + refresh_token (long-lived)
+  6. We save these to token.json
+  7. Next run: we use token.json directly (no browser)
+  8. When access_token expires (1hr): we auto-refresh using refresh_token
+
+In production: use a Service Account instead. Service accounts don't need
+a browser popup — they authenticate with a private key. Much better for
+server deployments.
+
+---
+
+## 6. WHY FASTAPI + STREAMLIT? NOT JUST STREAMLIT?
+
+Streamlit alone would work, BUT:
+
+Problem: The agent needs to run on a SCHEDULE (every 30 min).
+Streamlit only runs code when someone interacts with the page.
+If no one has the dashboard open, the agent never runs.
+
+Solution:
+  - FastAPI runs the agent on a background schedule (APScheduler)
+  - Streamlit is JUST the UI — it reads pre-computed briefs
+  - They communicate via HTTP: Streamlit polls FastAPI every 30s
+
+This separation also means:
+  - Multiple people can view the same dashboard simultaneously
+  - You can query the API directly (curl, Postman) for debugging
+  - Later you can swap Streamlit for React without touching the agent
+
+---
+
+## 7. WHAT IS ASYNC / PARALLEL EXECUTION?
+
+Without parallelism (sequential):
+  for meeting in meetings:       # 10 meetings
+      research(meeting)          # each takes 15 seconds
+  # Total: 10 × 15 = 150 seconds ≈ 2.5 minutes
+
+With asyncio (parallel):
+  await asyncio.gather(*[research(m) for m in meetings])
+  # Total: 15 seconds (all run simultaneously)
+
+asyncio is Python's way of running multiple IO-bound tasks concurrently.
+"IO-bound" = most time is spent waiting for network (API calls, web searches).
+
+asyncio.gather() runs all the coroutines (async functions) at the same time,
+then collects all results when everything finishes.
+
+This is a critical skill for production agentic systems where speed matters.
+
+---
+
+## 8. WHAT IS GRACEFUL DEGRADATION?
+
+In production, things fail:
+  - API rate limits
+  - Network timeouts
+  - Claude returns invalid JSON
+  - Company can't be identified
+  - Web search finds no results
+
+Graceful degradation = your system keeps working even when parts fail.
+
+In our agent:
+  - Can't identify company? → brief.status = "fallback", show message
+  - Research API fails? → brief.status = "error", show error message
+  - Calendar fetch fails? → agent continues with empty list, shows empty state
+  - JSON parse fails? → fallback to error status, log the raw response
+
+What we NEVER do:
+  - raise Exception without catching it somewhere
+  - Return None when the caller expects a dict
+  - Show a blank card (user is confused: did it fail? is it loading?)
+  - Crash the entire run because one meeting's research failed
+
+---
+
+## 9. EXTENDING THIS PROJECT
+
+Once you have the basic version working, here are things to add:
+
+LEARNING EXTENSION 1 — Conditional Edges in LangGraph:
+  Add a check after fetch_calendar: if no meetings, go to END early.
+  
+  graph.add_conditional_edges(
+      "fetch_calendar",
+      lambda state: "extract" if state["raw_events"] else END,
+      {"extract": "extract_companies", END: END}
+  )
+
+LEARNING EXTENSION 2 — Memory / Persistence:
+  Don't re-research companies you researched yesterday.
+  Add a "check cache" node before research: if brief exists and < 24hrs old, skip.
+
+LEARNING EXTENSION 3 — Human in the Loop:
+  LangGraph supports "interrupt_before" a node.
+  Pause before researching, let user approve which meetings to research.
+
+LEARNING EXTENSION 4 — Streaming:
+  Instead of waiting for all research to complete, stream each brief
+  to the dashboard as it finishes.
+
+LEARNING EXTENSION 5 — Multi-Agent:
+  Split into two agents:
+    - CalendarAgent: monitors calendar, emits events
+    - ResearchAgent: receives company name, returns brief
+  Connect them via a message queue (Redis, RabbitMQ).
+
+LEARNING EXTENSION 6 — LangSmith Tracing:
+  Add LANGCHAIN_TRACING_V2=true and LANGCHAIN_API_KEY to .env.
+  Every agent run gets a visual trace at smith.langchain.com.
+  See exactly which tools Claude called, in what order, with what results.
+
+=============================================================================
+
+## 10. RESOURCES TO GO DEEPER
+
+LangGraph:
+  https://langchain-ai.github.io/langgraph/tutorials/introduction/
+
+Tool Use / Function Calling:
+  https://docs.anthropic.com/en/docs/build-with-claude/tool-use
+
+Agentic Patterns (must-read):
+  https://www.anthropic.com/research/building-effective-agents
+
+APScheduler:
+  https://apscheduler.readthedocs.io/en/stable/userguide.html
+
+FastAPI:
+  https://fastapi.tiangolo.com/tutorial/
+
+Streamlit:
+  https://docs.streamlit.io/develop/concepts/architecture
+
+Google Calendar API:
+  https://developers.google.com/calendar/api/quickstart/python
+
+=============================================================================
